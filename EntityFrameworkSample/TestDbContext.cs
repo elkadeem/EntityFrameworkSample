@@ -16,19 +16,33 @@ namespace EntityFrameworkSample
             : this(ConfigurationManager.ConnectionStrings["TestConnectionString"].ConnectionString)
         {
             //Database.SetInitializer<TestDbContext>(new CreateDatabaseIfNotExists<TestDbContext>());
-            Database.SetInitializer<TestDbContext>(null);
+            
         }
         public TestDbContext(string connectionString) : base(connectionString)
-        { 
-
+        {
+            Database.SetInitializer<TestDbContext>(null);
+            this.Configuration.LazyLoadingEnabled = true;
         }
 
         public DbSet<Document> Documents { get; set; }
+
+        public DbSet<DocumentItem> DocumentItems { get; set; }
 
         public DbSet<Customer> Customers { get; set; }
 
         protected override void OnModelCreating(DbModelBuilder modelBuilder)
         {
+            modelBuilder.Entity<Document>()
+                .HasRequired(c => c.Customer)
+                .WithMany()
+                .WillCascadeOnDelete(false);
+
+            modelBuilder.Entity<Document>()
+                .HasMany(c => c.Items)
+                .WithRequired()
+                .HasForeignKey(c => c.DocumentId)
+                .WillCascadeOnDelete(false);
+
             //modelBuilder.Entity<Document>()
             //    .Property(c => c.Id).HasDatabaseGeneratedOption(DatabaseGeneratedOption.Identity);
         }
@@ -59,7 +73,7 @@ namespace EntityFrameworkSample
         public DateTime CreationDate { get; set; }
 
         public DateTime? ModifiedDate { get; set; }
-
+        
         public int CustomerId { get; set; }
 
         public Customer Customer { get; set; }
@@ -89,6 +103,11 @@ namespace EntityFrameworkSample
 
     public class Customer
     {
+        public Customer()
+        {
+            
+        }
+
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int Id { get; set; }
 
@@ -99,5 +118,7 @@ namespace EntityFrameworkSample
         [Required]
         [StringLength(100)]
         public string Name { get; set; }
+
+        //public ICollection<Document> Documents { get; set; }
     }
 }

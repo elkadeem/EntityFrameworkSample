@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Data.Entity;
 using System.Linq;
 
 namespace EntityFrameworkSample
@@ -7,6 +8,7 @@ namespace EntityFrameworkSample
     {
         static void Main(string[] args)
         {
+            Document newDocument = null;
             using (var dbContext = new TestDbContext())
             {
                 if (!dbContext.Customers.Any(c => c.Code == "1"))
@@ -20,45 +22,88 @@ namespace EntityFrameworkSample
                     dbContext.SaveChanges();
                 }
 
-                AddDocument(dbContext, 1);
+                newDocument = AddDocument(dbContext, 1);
             }
 
-            new Program().AddDocument(null, 0);
+            Console.WriteLine("Press Any Key to Delete ......");
+            Console.ReadKey();
+            DeleteDocument(newDocument);
+            Console.WriteLine($"Item will ID {newDocument.Id}......");
+
+            //Update ==============================================
+            Document documentToUpdate = SimulateUIChanges();
+            //
+            UpdateDocument(documentToUpdate);
+            Console.WriteLine("Item Updated");
+
             Console.ReadLine();
         }
 
-        private void AddDocument(TestDbContext dbContext, int customerId)
+        private static void UpdateDocument(Document documentToUpdate)
         {
+            if (documentToUpdate == null)
+                return;
 
-            using (var transaction = dbContext.Database.BeginTransaction())
+            using (TestDbContext dbContext = new TestDbContext())
             {
-                try
+                var currentDocument = dbContext.Documents.Include(c => c.Items)
+                    .FirstOrDefault(c => c.Id == documentToUpdate.Id);
+                //If not exist
+                if (currentDocument == null)
+                    return;
+
+                currentDocument.DocumentNumber = documentToUpdate.DocumentNumber;
+
+                //Remove the deleted items from UI
+                foreach (var item in currentDocument.Items.ToList())
                 {
-                    Document document = CreateDocument(customerId);
-                    dbContext.Documents.Add(document);
-                    dbContext.SaveChanges();
-
-                    AddItems(document);
-                    document.Total = document.Items.Sum(c => c.TotalPrice);
-                    document.Items.Last().Name = null;
-
-                    dbContext.SaveChanges();
-                    transaction.Commit();
-
-                    Console.WriteLine($"Add Document with Id {document.Id}");
+                    if (documentToUpdate.Items.Any(c => c.Id == item.Id) == false)
+                        dbContext.DocumentItems.Remove(item);
                 }
-                catch
+
+                // Add new && update existing item
+                foreach (var item in documentToUpdate.Items)
                 {
-                    transaction.Rollback();
+                    DocumentItem currentDocumentItem = null;
+                    if (item.Id > 0)
+                        currentDocumentItem = currentDocument.Items
+                            .FirstOrDefault(c => c.Id == item.Id);
+
+                    if (currentDocumentItem == null)
+                    {
+                        currentDocumentItem = new DocumentItem();
+                        currentDocument.Items.Add(currentDocumentItem);
+                    }
+
+
+                    currentDocumentItem.Name = item.Name;
+                    currentDocumentItem.Quantity = item.Quantity;
+                    currentDocumentItem.UnitPrice = item.UnitPrice;
+                    currentDocumentItem.TotalPrice = item.Quantity * item.UnitPrice;
                 }
+
+                currentDocument.Total = currentDocument.Items.Sum(c => c.TotalPrice);
+                dbContext.SaveChanges();
             }
         }
 
-        private static void AddItems(Document document)
+        private static Document SimulateUIChanges()
         {
-            for (int i = 1; i <= 3; i++)
+            var documentToUpdate = (new TestDbContext()).Documents.Include("Items")
+                            .FirstOrDefault(c => c.Id == 2);
+            documentToUpdate.DocumentNumber = "20";
+            //Delete
+            var firstItem = documentToUpdate.Items.First();
+            documentToUpdate.Items.Remove(firstItem);
+            //Update
+            var itemToEdit = documentToUpdate.Items.Last();
+            itemToEdit.Name = "Update Name";
+            itemToEdit.Quantity = 10;
+            itemToEdit.UnitPrice = 3;
+            //Add
+            for (int i = 1; i <= 4; i++)
             {
-                document.Items.Add(new DocumentItem
+                documentToUpdate.Items.Add(new DocumentItem
                 {
                     Name = $"Item {i}",
                     Quantity = 10 * i,
@@ -66,24 +111,35 @@ namespace EntityFrameworkSample
                 });
             }
 
-            foreach (var item in document.Items)
+            return documentToUpdate;
+        }
+
+        private static void DeleteDocument(Document documentToDelete)
+        {
+            if (documentToDelete == null)
+                return;
+
+            using (var dbContext = new TestDbContext())
             {
-                item.TotalPrice = item.Quantity * item.UnitPrice;
+                var document = dbContext.Documents
+                    .Include("Items")
+                    .FirstOrDefault(c => c.Id == documentToDelete.Id);
+                if (document != null)
+                {
+                    foreach (var item in document.Items.ToList())
+                    {
+                        dbContext.Entry(item).State = System.Data.Entity.EntityState.Deleted;
+                        //dbContext.DocumentItems.Remove(item);
+                        //document.Items.Remove(item);
+                    }
+
+                    dbContext.Documents.Remove(document);
+                    dbContext.SaveChanges();
+                }
             }
         }
 
-        private static Document CreateDocument(int customerId)
-        {
-            return new Document()
-            {
-                CreationDate = DateTime.Now,
-                CustomerId = customerId,
-                DocumentDate = DateTime.Now,
-                DocumentNumber = "1",
-            };
-        }
-
-        private static void AddDocument(TestDbContext dbContext, int customerId)
+        private static Document AddDocument(TestDbContext dbContext, int customerId)
         {
             using (var transaction = dbContext.Database.BeginTransaction())
             {
@@ -98,8 +154,6 @@ namespace EntityFrameworkSample
                     };
 
                     dbContext.Documents.Add(document);
-                    dbContext.SaveChanges();
-
                     for (int i = 1; i <= 3; i++)
                     {
                         document.Items.Add(new DocumentItem
@@ -117,16 +171,16 @@ namespace EntityFrameworkSample
 
                     document.Total = document.Items.Sum(c => c.TotalPrice);
 
-                   
-                    document.Items.Last().Name = null;
+                    //document.Items.Last().Name = null;
                     dbContext.SaveChanges();
                     transaction.Commit();
-
                     Console.WriteLine($"Add Document with Id {document.Id}");
+                    return document;
                 }
                 catch
                 {
-                    transaction.Rollback();                   
+                    transaction.Rollback();
+                    return null;
                 }
             }
         }
